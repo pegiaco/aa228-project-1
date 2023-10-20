@@ -1,10 +1,13 @@
-strict digraph  {
-age;
-portembarked;
-fare;
-numparentschildren;
-passengerclass;
-sex;
-numsiblings;
-survived;
-}
+age, portembarked
+age, fare
+age, numparentschildren
+age, passengerclass
+age, numsiblings
+portembarked, fare
+portembarked, passengerclass
+fare, numparentschildren
+numparentschildren, sex
+numparentschildren, numsiblings
+passengerclass, sex
+passengerclass, survived
+sex, survived
