@@ -87,20 +87,13 @@ def load_graph(filename, vars):
             G.add_edge(names2idx[edge[0]], names2idx[edge[1]])
     return G
 
-def write_graph(dag, idx2names, filename):
-    with open(filename, 'w') as f:
+def write_graph(dag, score, idx2names, filename):
+    plt.title(f"{filename} dataset - bayesian score: {score}")
+    nx.draw(dag, with_labels = True)
+    plt.savefig(f"./output/{filename}.png", format="PNG")
+    with open(f"./output/{filename}.gph", 'w') as f:
         for edge in dag.edges():
             f.write(f"{idx2names[edge[0]]}, {idx2names[edge[1]]}\n")
-
-def plot_bayesian_network(bayesian_network, title, variable_names):
-    pos = nx.spring_layout(bayesian_network)
-    # Create a dictionary to map variable indices to their names
-    variable_name_mapping = {i: variable_names[i] for i in range(len(variable_names))}
-    # Replace node numbers with variable names in the plot
-    labels = {node: variable_name_mapping[node] for node in bayesian_network.nodes()}
-    nx.draw(bayesian_network, pos, labels=labels, with_labels=True, node_size=400, node_color="skyblue")
-    plt.title(title)
-    plt.show()
 
 def test_score():
     filename = "example"
@@ -131,66 +124,98 @@ def random_network(vars, N_parents):
                 G.add_edge(parent, i)
     return G
 
-# Create a global dictionary to stpre scores of Bayesian network structures
-network_scores = {}
 
-def select_best_BN(vars, D, n, N_parents):
-    best_BN = None
-    best_score = -float('inf')
-    network_scores.clear()
+def best_BN_k2(vars, D, iterations=100):
+    var_list = [i for i in range(len(vars))] 
+    best_score = float('-inf')  
 
-    for i in range(n):
-        initial_net = random_network(vars, N_parents)
-        improved_net, score = k2(vars, D, N_parents)
-
-        print(f"Iteration {i + 1}/{n} | Score: {score}")
-
+    for k in range(iterations):
+        perm = random.sample(var_list, len(var_list))
+        G, score = k2_algorithm(vars, D, perm)
         if score > best_score:
-            best_BN = improved_net
             best_score = score
+            G_final = G
+        print(f"Iteration {k}/{iterations} - score: {score} - best_score: {best_score}")
 
-    return best_BN, best_score
+    return G_final, best_score
 
 
-def k2(vars, D, N_parents=None):
-    n = len(vars)
-    
-    # Create an initial graph with no edges
+
+def k2_algorithm(vars, D, ordering):
     G = nx.DiGraph()
-    G.add_nodes_from(range(n))
-
-    # Variable ordering
-    ordering = list(range(n))
-    
-    for i in ordering[1:]:
+    G.add_nodes_from(range(len(vars)))
+    for k, i in enumerate(ordering[1:],1):
         y = bayesian_score(vars, G, D)
-        
-        parents_set = set(ordering[:i])
-        current_parents = set(G.predecessors(i))
-        
-        if N_parents is not None and len(current_parents) >= N_parents:
-            continue
-
         while True:
-            y_best = -float("inf")
-            j_best = None
-
-            for j in parents_set:
+            y_best, j_best = float('-inf'), 0
+            for j in ordering[:k]:
                 if not G.has_edge(j, i):
                     G.add_edge(j, i)
                     y_prime = bayesian_score(vars, G, D)
                     if y_prime > y_best:
-                        y_best = y_prime
-                        j_best = j
+                        y_best, j_best = y_prime, j
                     G.remove_edge(j, i)
-
-            if j_best is not None and (N_parents is None or len(current_parents) < N_parents):
+            if y_best > y:
+                y = y_best
                 G.add_edge(j_best, i)
-                current_parents.add(j_best)
             else:
                 break
-    
     return G, y_best
+
+
+def best_BN_local_search(vars, D, k_max, iterations):
+    n = len(vars)
+    best_score = -float('inf')
+
+    for i in range(iterations):
+        initial_graph = random_graph(n)
+        G, score = local_search_algorithm(vars, D, initial_graph, k_max)
+        if score > best_score:
+            best_score = score
+            G_final = G
+        print(f"Iteration {i}/{iterations} - score: {score} - best_score: {best_score}")
+
+    return G_final, best_score
+
+
+def local_search_algorithm(vars, D, G, k_max):
+    y = bayesian_score(vars, G, D)
+    for k in range(1, k_max + 1):
+        G_prime = random_network_neighbour(G)
+        if not nx.is_directed_acyclic_graph(G_prime):
+            y_prime = -float('inf')
+        else:
+            y_prime = bayesian_score(vars, G_prime, D)
+        if y_prime > y:
+            y, G = y_prime, G_prime
+    return G, y
+
+
+def random_network_neighbour(G):
+    n = G.number_of_nodes()
+    i = random.randint(0, n-1)
+    j = (i + random.randint(2, n - 1)) % n
+    G_prime = G.copy()
+    if G.has_edge(i, j):
+        G_prime.remove_edge(i, j)
+    else:
+        G_prime.add_edge(i, j)
+    return G_prime
+
+
+def random_graph(n):
+    p = 0.10
+    G_random = nx.DiGraph()
+    for i in range(n):
+        G_random.add_node(i)
+    for i in range(n):
+        for j in range(n):
+            if i != j and random.random() < p:
+                G_random.add_edge(i, j)
+                if nx.is_directed_acyclic_graph(G_random):
+                    G_random.remove_edge(i, j)
+
+    return G_random
 
 
 def main():
@@ -206,20 +231,34 @@ def main():
     medium_vars_names = list(medium_df.columns)
     large_vars_names = list(large_df.columns)
 
+    iterations = 100
+
     # Small dataset
     small_idx2names = {i: small_vars_names[i] for i in range(len(small_vars_names))}
     start_time = time.time()
-    small_best_BN, small_best_score = select_best_BN(small_vars, small_df, n=5, N_parents=2)
+    small_best_BN, small_best_score = best_BN_k2(small_vars, small_df, iterations)
     end_time = time.time()
-    print(f"Time spent: {end_time - start_time} seconds")
+    print(f"Time spent per iteration: {(end_time - start_time)/iterations} seconds")
     print("Best Bayesian Score:", small_best_score)
-    plot_bayesian_network(small_best_BN, "Bayesian Network - Small Dataset", small_vars_names)
-    write_graph(small_best_BN, small_idx2names, "small")
+    write_graph(small_best_BN, small_best_score, small_idx2names, "small")
 
+    # Medium dataset
+    medium_idx2names = {i: medium_vars_names[i] for i in range(len(medium_vars_names))}
+    start_time = time.time()
+    medium_best_BN, medium_best_score = best_BN_k2(medium_vars, medium_df, iterations)
+    end_time = time.time()
+    print(f"Time spent per iteration: {(end_time - start_time)/iterations} seconds")
+    print("Best Bayesian Score:", medium_best_score)
+    write_graph(medium_best_BN, medium_best_score, medium_idx2names, "medium")
 
-
-
-
+    # Large dataset
+    large_idx2names = {i: large_vars_names[i] for i in range(len(large_vars_names))}
+    start_time = time.time()
+    large_best_BN, large_best_score = best_BN_local_search(large_vars, large_df, 20, iterations)
+    end_time = time.time()
+    print(f"Time spent per iteration: {(end_time - start_time)/iterations} seconds")
+    print("Best Bayesian Score:", large_best_score)
+    write_graph(large_best_BN, large_best_score, large_idx2names, "large")
 
 
 if __name__ == '__main__':
