@@ -8,6 +8,44 @@ import random
 import matplotlib.pyplot as plt
 
 
+###### Utils
+
+class Variable:
+    def __init__(self, name, r):
+        self.name = name
+        self.r = r
+
+
+def load_data(filename):
+    df = pd.read_csv(f"./data/{filename}.csv", delimiter=',')
+    df_max = df.max()
+    var_names = list(df.columns)
+    df = df.groupby(var_names).size().reset_index(name='count')
+    vars = [Variable(var_names[i], df_max.iloc[i]) for i in range(len(var_names))]
+    return df, vars
+
+
+def load_graph(filename, vars):
+    G = nx.DiGraph()
+    G.add_nodes_from(list(range(len(vars))))
+    names2idx = {vars[i].name: i for i in range(len(vars))}
+    with open(f"./graphs/{filename}.gph", 'r') as f:
+        for line in f:
+            edge = line.replace('\n', '').replace(' ', '').split(',')
+            G.add_edge(names2idx[edge[0]], names2idx[edge[1]])
+    return G
+
+def write_graph(dag, score, idx2names, filename):
+    plt.title(f"{filename} dataset - bayesian score: {score}")
+    nx.draw(dag, with_labels = True)
+    plt.savefig(f"./output/{filename}.png", format="PNG")
+    with open(f"./output/{filename}.gph", 'w') as f:
+        for edge in dag.edges():
+            f.write(f"{idx2names[edge[0]]}, {idx2names[edge[1]]}\n")
+
+
+###### Bayesian score
+
 def sub2ind(siz, x):
     k = np.concatenate(([1], np.cumprod(siz[:-1])))
     return int(np.dot(k, np.array(x) - 1)) + 1
@@ -62,38 +100,7 @@ def bayesian_score(vars, G, D):
     return sum(bayesian_score_component(M[i], alpha[i]) for i in range(n))
 
 
-class Variable:
-    def __init__(self, name, r):
-        self.name = name
-        self.r = r
-
-
-def load_data(filename):
-    df = pd.read_csv(f"./data/{filename}.csv", delimiter=',')
-    df_max = df.max()
-    var_names = list(df.columns)
-    df = df.groupby(var_names).size().reset_index(name='count')
-    vars = [Variable(var_names[i], df_max.iloc[i]) for i in range(len(var_names))]
-    return df, vars
-
-
-def load_graph(filename, vars):
-    G = nx.DiGraph()
-    G.add_nodes_from(list(range(len(vars))))
-    names2idx = {vars[i].name: i for i in range(len(vars))}
-    with open(f"./graphs/{filename}.gph", 'r') as f:
-        for line in f:
-            edge = line.replace('\n', '').replace(' ', '').split(',')
-            G.add_edge(names2idx[edge[0]], names2idx[edge[1]])
-    return G
-
-def write_graph(dag, score, idx2names, filename):
-    plt.title(f"{filename} dataset - bayesian score: {score}")
-    nx.draw(dag, with_labels = True)
-    plt.savefig(f"./output/{filename}.png", format="PNG")
-    with open(f"./output/{filename}.gph", 'w') as f:
-        for edge in dag.edges():
-            f.write(f"{idx2names[edge[0]]}, {idx2names[edge[1]]}\n")
+###### Test bayesian score
 
 def test_score():
     filename = "example"
@@ -107,23 +114,7 @@ def test_score():
     print("Score accuracy: {:.0f}%".format(score_accuracy))
 
 
-def random_network(vars, N_parents):
-    G = nx.DiGraph()
-    n = len(vars)
-    
-    for i in range(n):
-        G.add_node(i)
-    
-    for i in range(n):
-        nb_parents = random.randint(0, N_parents)
-        if nb_parents > 0:
-            parent_candidates = list(range(n))
-            parent_candidates.remove(i)
-            parents = random.sample(parent_candidates, nb_parents)
-            for parent in parents:
-                G.add_edge(parent, i)
-    return G
-
+###### K2 algorithm
 
 def best_BN_k2(vars, D, iterations=100):
     var_list = [i for i in range(len(vars))] 
@@ -162,6 +153,8 @@ def k2_algorithm(vars, D, ordering):
                 break
     return G, y_best
 
+
+###### Local search
 
 def best_BN_local_search(vars, D, k_max, iterations):
     n = len(vars)
